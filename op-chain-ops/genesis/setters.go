@@ -2,7 +2,6 @@ package genesis
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum-optimism/optimism/op-bindings/bindings"
@@ -15,33 +14,12 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-// UntouchableCodeHashes contains code hashes of all the contracts
-// that should not be touched by the migration process.
-type ChainHashMap map[uint64]common.Hash
-
-var (
-	// UntouchablePredeploys are addresses in the predeploy namespace
-	// that should not be touched by the migration process.
-	UntouchablePredeploys = map[common.Address]bool{
-		predeploys.GovernanceTokenAddr: true,
-		predeploys.WETH9Addr:           true,
-	}
-)
-
 // FundDevAccounts will fund each of the development accounts.
 func FundDevAccounts(db vm.StateDB) {
 	for _, account := range DevAccounts {
 		db.CreateAccount(account)
 		db.AddBalance(account, devBalance)
 	}
-}
-
-// SetL2Proxies will set each of the proxies in the state. It requires
-// a Proxy and ProxyAdmin deployment present so that the Proxy bytecode
-// can be set in state and the ProxyAdmin can be set as the admin of the
-// Proxy.
-func SetL2Proxies(db vm.StateDB) error {
-	return setProxies(db, predeploys.ProxyAdminAddr, bigL2PredeployNamespace, 2048)
 }
 
 // SetL1Proxies will set each of the proxies in the state. It requires
@@ -65,11 +43,6 @@ func setProxies(db vm.StateDB, proxyAdminAddr common.Address, namespace *big.Int
 		bigAddr := new(big.Int).Or(namespace, new(big.Int).SetUint64(i))
 		addr := common.BigToAddress(bigAddr)
 
-		if UntouchablePredeploys[addr] {
-			log.Info("Skipping setting proxy", "address", addr)
-			continue
-		}
-
 		if !db.Exist(addr) {
 			db.CreateAccount(addr)
 		}
@@ -89,78 +62,6 @@ func SetLegacyETH(db vm.StateDB, storage state.StorageConfig, immutable immutabl
 	}
 
 	return setupPredeploy(db, deployResults, storage, "LegacyERC20ETH", predeploys.LegacyERC20ETHAddr, predeploys.LegacyERC20ETHAddr)
-}
-
-// SetImplementations will set the implementations of the contracts in the state
-// and configure the proxies to point to the implementations. It also sets
-// the appropriate storage values for each contract at the proxy address.
-func SetImplementations(db vm.StateDB, storage state.StorageConfig, immutable immutables.ImmutableConfig) error {
-	deployResults, err := immutables.BuildOptimism(immutable)
-	if err != nil {
-		return err
-	}
-
-	for name, address := range predeploys.Predeploys {
-		if UntouchablePredeploys[*address] {
-			continue
-		}
-
-		if *address == predeploys.LegacyERC20ETHAddr {
-			continue
-		}
-
-		codeAddr, err := AddressToCodeNamespace(*address)
-		if err != nil {
-			return fmt.Errorf("error converting to code namespace: %w", err)
-		}
-
-		if !db.Exist(codeAddr) {
-			db.CreateAccount(codeAddr)
-		}
-
-		db.SetState(*address, ImplementationSlot, codeAddr.Hash())
-
-		if err := setupPredeploy(db, deployResults, storage, name, *address, codeAddr); err != nil {
-			return err
-		}
-
-		code := db.GetCode(codeAddr)
-		if len(code) == 0 {
-			return fmt.Errorf("code not set for %s", name)
-		}
-	}
-	return nil
-}
-
-func SetDevOnlyL2Implementations(db vm.StateDB, storage state.StorageConfig, immutable immutables.ImmutableConfig) error {
-	deployResults, err := immutables.BuildOptimism(immutable)
-	if err != nil {
-		return err
-	}
-
-	for name, address := range predeploys.Predeploys {
-		if !UntouchablePredeploys[*address] {
-			continue
-		}
-
-		db.CreateAccount(*address)
-
-		if err := setupPredeploy(db, deployResults, storage, name, *address, *address); err != nil {
-			return err
-		}
-
-		code := db.GetCode(*address)
-		if len(code) == 0 {
-			return fmt.Errorf("code not set for %s", name)
-		}
-	}
-
-	db.CreateAccount(predeploys.LegacyERC20ETHAddr)
-	if err := setupPredeploy(db, deployResults, storage, "LegacyERC20ETH", predeploys.LegacyERC20ETHAddr, predeploys.LegacyERC20ETHAddr); err != nil {
-		return fmt.Errorf("error setting up legacy eth: %w", err)
-	}
-
-	return nil
 }
 
 // SetPrecompileBalances will set a single wei at each precompile address.

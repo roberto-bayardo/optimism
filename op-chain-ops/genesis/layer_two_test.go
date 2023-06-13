@@ -41,7 +41,7 @@ func TestBuildL2DeveloperGenesis(t *testing.T) {
 	block, err := backend.BlockByNumber(context.Background(), common.Big0)
 	require.NoError(t, err)
 
-	gen, err := genesis.BuildL2DeveloperGenesis(config, block)
+	gen, err := genesis.BuildL2Genesis(config, block)
 	require.Nil(t, err)
 	require.NotNil(t, gen)
 
@@ -52,10 +52,14 @@ func TestBuildL2DeveloperGenesis(t *testing.T) {
 		addr := *address
 
 		account, ok := gen.Alloc[addr]
-		require.Equal(t, true, ok)
+		if name == "LegacyERC20ETH" {
+			require.Equal(t, false, ok, name)
+			continue
+		}
+		require.Equal(t, true, ok, name)
 		require.Greater(t, len(account.Code), 0)
 
-		if name == "GovernanceToken" || name == "LegacyERC20ETH" || name == "ProxyAdmin" || name == "WETH9" {
+		if name == "GovernanceToken" || name == "ProxyAdmin" || name == "WETH9" {
 			continue
 		}
 
@@ -64,7 +68,7 @@ func TestBuildL2DeveloperGenesis(t *testing.T) {
 		require.Equal(t, predeploys.ProxyAdminAddr.Hash(), adminSlot)
 		require.Equal(t, proxyBytecode, account.Code)
 	}
-	require.Equal(t, 2343, len(gen.Alloc))
+	require.Equal(t, 2341, len(gen.Alloc))
 
 	if writeFile {
 		file, _ := json.MarshalIndent(gen, "", " ")
@@ -89,9 +93,9 @@ func TestBuildL2DeveloperGenesisDevAccountsFunding(t *testing.T) {
 	block, err := backend.BlockByNumber(context.Background(), common.Big0)
 	require.NoError(t, err)
 
-	gen, err := genesis.BuildL2DeveloperGenesis(config, block)
+	gen, err := genesis.BuildL2Genesis(config, block)
 	require.NoError(t, err)
-	require.Equal(t, 2321, len(gen.Alloc))
+	require.Equal(t, 2063, len(gen.Alloc))
 }
 
 // Tests the BuildL2MainnetGenesis factory. enableGovernance is used to override enableGovernance
@@ -101,6 +105,7 @@ func testBuildL2Genesis(t *testing.T, enableGovernance bool) {
 	config, err := genesis.NewDeployConfig("./testdata/test-deploy-config-devnet-l1.json")
 	require.Nil(t, err)
 	config.EnableGovernance = enableGovernance
+	config.FundDevAccounts = false
 
 	backend := backends.NewSimulatedBackend(
 		core.GenesisAlloc{
@@ -111,7 +116,7 @@ func testBuildL2Genesis(t *testing.T, enableGovernance bool) {
 	block, err := backend.BlockByNumber(context.Background(), common.Big0)
 	require.NoError(t, err)
 
-	gen, err := genesis.BuildL2MainnetGenesis(config, block)
+	gen, err := genesis.BuildL2Genesis(config, block)
 	require.Nil(t, err)
 	require.NotNil(t, gen)
 
