@@ -15,8 +15,10 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/log"
 
+	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	"github.com/ethereum-optimism/optimism/op-service/txmgr/metrics"
 )
@@ -74,6 +76,8 @@ type ETHBackend interface {
 
 	// SendTransaction submits a signed transaction to L1.
 	SendTransaction(ctx context.Context, tx *types.Transaction) error
+
+	SendTransaction4844(ctx context.Context, tx *txpool.Transaction) error
 
 	// These functions are used to estimate what the basefee & priority fee should be set to.
 	// TODO(CLI-3318): Maybe need a generic interface to support different RPC providers
@@ -134,8 +138,10 @@ func (m *SimpleTxManager) BlockNumber(ctx context.Context) (uint64, error) {
 // TxCandidate is a transaction candidate that can be submitted to ask the
 // [TxManager] to construct a transaction with gas price bounds.
 type TxCandidate struct {
-	// TxData is the transaction data to be used in the constructed tx.
+	// TxData is the transaction calldata to be used in the constructed tx.
 	TxData []byte
+	// Blobs to send along in the tx (optional).
+	Blobs []*eth.Blob
 	// To is the recipient of the constructed tx. Nil means contract creation.
 	To *common.Address
 	// GasLimit is the gas limit to be used in the constructed tx.
@@ -194,7 +200,9 @@ func (m *SimpleTxManager) send(ctx context.Context, candidate TxCandidate) (*typ
 // NOTE: This method SHOULD NOT publish the resulting transaction.
 // NOTE: If the [TxCandidate.GasLimit] is non-zero, it will be used as the transaction's gas.
 // NOTE: Otherwise, the [SimpleTxManager] will query the specified backend for an estimate.
-func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*types.Transaction, error) {
+func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*txpool.Transaction, error) {
+	m.l.Info("Creating tx", "to", candidate.To, "from", m.cfg.From)
+
 	gasTipCap, basefee, err := m.suggestGasPriceCaps(ctx)
 	if err != nil {
 		m.metr.RPCError()
@@ -207,38 +215,77 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 		return nil, err
 	}
 
-	rawTx := &types.DynamicFeeTx{
-		ChainID:   m.chainID,
-		Nonce:     nonce,
-		To:        candidate.To,
-		GasTipCap: gasTipCap,
-		GasFeeCap: gasFeeCap,
-		Data:      candidate.TxData,
-	}
+	txCalldata := candidate.TxData
+	gasLimit := candidate.GasLimit
 
-	m.l.Info("Creating tx", "to", rawTx.To, "from", m.cfg.From)
-
-	// If the gas limit is set, we can use that as the gas
-	if candidate.GasLimit != 0 {
-		rawTx.Gas = candidate.GasLimit
-	} else {
+	if gasLimit == 0 {
 		// Calculate the intrinsic gas for the transaction
 		gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
 			From:      m.cfg.From,
 			To:        candidate.To,
 			GasFeeCap: gasFeeCap,
 			GasTipCap: gasTipCap,
-			Data:      rawTx.Data,
+			Data:      txCalldata,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to estimate gas: %w", err)
 		}
-		rawTx.Gas = gas
+		gaslimit = gas
 	}
 
+	var tx txpool.Transaction
+	if len(candidate.Blobs) > 0 {
+		if candidate.To == nil {
+			return nil, errors.New("blob txs cannot deploy contracts")
+		}
+		blobHashes := make([]common.Hash, 0, len(candidate.Blobs))
+		for i, blob := range candidate.Blobs {
+			rawBlob := *blob.KZGBlob()
+			tx.BlobTxBlobs = append(tx.BlobTxBlobs, rawBlob)
+			commitment, err := kzg4844.BlobToCommitment(rawBlob)
+			if err != nil {
+				return nil, fmt.Errorf("cannot compute KZG commitment of blob %d in tx candidate: %w", i, err)
+			}
+			tx.BlobTxCommits = append(tx.BlobTxCommits, commitment)
+			proof, err := kzg4844.ComputeBlobProof(rawBlob, commitment)
+			if err != nil {
+				return nil, fmt.Errorf("cannot compute KZG proof for fast commitment verification of blob %d in tx candidate: %w", i, err)
+			}
+			tx.BlobTxProofs = append(tx.BlobTxProofs, proof)
+			blobHashes = append(blobHashes, eth.KzgToVersionedHash(commitment))
+		}
+		tx.Tx = types.NewTx(&types.BlobTx{
+			ChainID:   uint256.MustFromBig(m.chainID),
+			Nonce:     nonce,
+			To:        *candidate.To,
+			GasTipCap: uint256.MustFromBig(gasTipCap),
+			GasFeeCap: uint256.MustFromBig(gasFeeCap),
+			Data:      txCalldata,
+			Gas:       gasLimit,
+
+			BlobFeeCap: uint256.NewInt(1000_000), // TODO blob fee estimation
+			BlobHashes: blobHashes,
+		})
+	} else {
+		tx.Tx = types.NewTx(&types.DynamicFeeTx{
+			ChainID:   m.chainID,
+			Nonce:     nonce,
+			To:        candidate.To,
+			GasTipCap: gasTipCap,
+			GasFeeCap: gasFeeCap,
+			Data:      txCalldata,
+			Gas:       gasLimit,
+		})
+	}
 	ctx, cancel := context.WithTimeout(ctx, m.cfg.NetworkTimeout)
 	defer cancel()
-	return m.cfg.Signer(ctx, m.cfg.From, types.NewTx(rawTx))
+
+	signedTx, err := m.cfg.Signer(ctx, m.cfg.From, tx.Tx)
+	if err != nil {
+		return nil, err
+	}
+	tx.Tx = signedTx
+	return &tx, nil
 }
 
 // nextNonce returns a nonce to use for the next transaction. It uses
@@ -277,7 +324,7 @@ func (m *SimpleTxManager) resetNonce() {
 
 // send submits the same transaction several times with increasing gas prices as necessary.
 // It waits for the transaction to be confirmed on chain.
-func (m *SimpleTxManager) sendTx(ctx context.Context, tx *types.Transaction) (*types.Receipt, error) {
+func (m *SimpleTxManager) sendTx(ctx context.Context, tx *txpool.Transaction) (*types.Receipt, error) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	ctx, cancel := context.WithCancel(ctx)
@@ -285,7 +332,7 @@ func (m *SimpleTxManager) sendTx(ctx context.Context, tx *types.Transaction) (*t
 
 	sendState := NewSendState(m.cfg.SafeAbortNonceTooLowCount, m.cfg.TxNotInMempoolTimeout)
 	receiptChan := make(chan *types.Receipt, 1)
-	sendTxAsync := func(tx *types.Transaction) {
+	sendTxAsync := func(tx *txpool.Transaction) {
 		defer wg.Done()
 		m.publishAndWaitForTx(ctx, tx, sendState, receiptChan)
 	}
@@ -311,7 +358,7 @@ func (m *SimpleTxManager) sendTx(ctx context.Context, tx *types.Transaction) (*t
 				return nil, errors.New("aborted transaction sending")
 			}
 			// Increase the gas price & submit the new transaction
-			newTx, err := m.increaseGasPrice(ctx, tx)
+			newTx, err := m.increaseGasPrice(ctx, tx.Tx)
 			if err != nil || sendState.IsWaitingForConfirmation() {
 				// there is a chance the previous tx goes into "waiting for confirmation" state
 				// during the increaseGasPrice call. In some (but not all) cases increaseGasPrice
@@ -319,7 +366,7 @@ func (m *SimpleTxManager) sendTx(ctx context.Context, tx *types.Transaction) (*t
 				// rather than resubmit the tx.
 				continue
 			}
-			tx = newTx
+			tx.Tx = newTx
 			wg.Add(1)
 			bumpCounter += 1
 			go sendTxAsync(tx)
@@ -338,14 +385,15 @@ func (m *SimpleTxManager) sendTx(ctx context.Context, tx *types.Transaction) (*t
 // publishAndWaitForTx publishes the transaction to the transaction pool and then waits for it with [waitMined].
 // It should be called in a new go-routine. It will send the receipt to receiptChan in a non-blocking way if a receipt is found
 // for the transaction.
-func (m *SimpleTxManager) publishAndWaitForTx(ctx context.Context, tx *types.Transaction, sendState *SendState, receiptChan chan *types.Receipt) {
-	log := m.l.New("hash", tx.Hash(), "nonce", tx.Nonce(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
+func (m *SimpleTxManager) publishAndWaitForTx(ctx context.Context, txpoolTx *txpool.Transaction, sendState *SendState, receiptChan chan *types.Receipt) {
+	tx := txpoolTx.Tx
+	log := m.l.New("hash", tx.Hash(), "nonce", tx.Nonce(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap(), "blobs", len(txpoolTx.BlobTxBlobs))
 	log.Info("Publishing transaction")
 
 	cCtx, cancel := context.WithTimeout(ctx, m.cfg.NetworkTimeout)
 	defer cancel()
 	t := time.Now()
-	err := m.backend.SendTransaction(cCtx, tx)
+	err := m.backend.SendTransaction4844(cCtx, txpoolTx)
 	sendState.ProcessSendError(err)
 
 	// Properly log & exit if there is an error

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/txpool/blobpool"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
@@ -51,6 +52,11 @@ func NewL1Replica(t Testing, log log.Logger, genesis *core.Genesis) *L1Replica {
 		NetworkId:                 genesis.Config.ChainID.Uint64(),
 		Genesis:                   genesis,
 		RollupDisableTxPoolGossip: true,
+		BlobPool: blobpool.Config{
+			Datadir:   t.TempDir(),
+			Datacap:   blobpool.DefaultConfig.Datacap,
+			PriceBump: blobpool.DefaultConfig.PriceBump,
+		},
 	}
 	nodeCfg := &node.Config{
 		Name:        "l1-geth",
@@ -161,12 +167,12 @@ func (s *L1Replica) MockL1RPCErrors(fn func() error) {
 }
 
 func (s *L1Replica) EthClient() *ethclient.Client {
-	cl, _ := s.node.Attach() // never errors
+	cl := s.node.Attach()
 	return ethclient.NewClient(cl)
 }
 
 func (s *L1Replica) RPCClient() client.RPC {
-	cl, _ := s.node.Attach() // never errors
+	cl := s.node.Attach()
 	return testutils.RPCErrFaker{
 		RPC: client.NewBaseRPCClient(cl),
 		ErrFn: func() error {

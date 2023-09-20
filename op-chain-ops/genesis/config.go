@@ -198,6 +198,11 @@ type DeployConfig struct {
 	// FundDevAccounts configures whether or not to fund the dev accounts. Should only be used
 	// during devnet deployments.
 	FundDevAccounts bool `json:"fundDevAccounts"`
+
+	// When Cancun activates. Relative to L1 genesis.
+	L1CancunTimeOffset *uint64 `json:"l1CancunTimeOffset,omitempty"`
+	// When 4844 blob-tx functionality for rollup DA actives. Relative to L2 genesis.
+	L2BlobsUpgradeTimeOffset *uint64 `json:"l2BlobsUpgradeTimeOffset,omitempty"`
 }
 
 // Copy will deeply copy the DeployConfig. This does a JSON roundtrip to copy

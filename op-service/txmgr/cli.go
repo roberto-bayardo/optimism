@@ -8,6 +8,7 @@ import (
 	"time"
 
 	opservice "github.com/ethereum-optimism/optimism/op-service"
+	client2 "github.com/ethereum-optimism/optimism/op-service/client"
 	opcrypto "github.com/ethereum-optimism/optimism/op-service/crypto"
 	"github.com/ethereum-optimism/optimism/op-signer/client"
 	"github.com/ethereum/go-ethereum/common"
@@ -234,7 +235,7 @@ func NewConfig(cfg CLIConfig, l log.Logger) (Config, error) {
 	}
 
 	return Config{
-		Backend:                   l1,
+		Backend:                   &client2.EthClient4844{Client: l1},
 		ResubmissionTimeout:       cfg.ResubmissionTimeout,
 		ChainID:                   chainID,
 		TxSendTimeout:             cfg.TxSendTimeout,
