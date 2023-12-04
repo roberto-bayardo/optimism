@@ -41,9 +41,15 @@ type L1BlockInfo struct {
 	// i.e. when the actual L1 info was first introduced.
 	SequenceNumber uint64
 	// BatcherHash version 0 is just the address with 0 padding to the left.
-	BatcherAddr   common.Address
-	L1FeeOverhead eth.Bytes32
-	L1FeeScalar   eth.Bytes32
+	// BatcherHash version 1 has:
+	//    byte 0:     0x1 (version)
+	//    byte 1:     0x0 or 0x1 indicating whether blob transactions can be used for batches
+	//    bytes 2-32: the address with 0 padding to the left
+	BatcherHashVersion byte
+	BatcherAddr        common.Address
+	CanUseBlobs        bool
+	L1FeeOverhead      eth.Bytes32
+	L1FeeScalar        eth.Bytes32
 }
 
 // Binary Format
@@ -81,7 +87,7 @@ func (info *L1BlockInfo) MarshalBinary() ([]byte, error) {
 	if err := solabi.WriteUint64(w, info.SequenceNumber); err != nil {
 		return nil, err
 	}
-	if err := solabi.WriteAddress(w, info.BatcherAddr); err != nil {
+	if err := WriteVersionedBatcherHash(w, info.BatcherHashVersion, info.BatcherAddr, info.CanUseBlobs); err != nil {
 		return nil, err
 	}
 	if err := solabi.WriteEthBytes32(w, info.L1FeeOverhead); err != nil {
@@ -118,7 +124,7 @@ func (info *L1BlockInfo) UnmarshalBinary(data []byte) error {
 	if info.SequenceNumber, err = solabi.ReadUint64(reader); err != nil {
 		return err
 	}
-	if info.BatcherAddr, err = solabi.ReadAddress(reader); err != nil {
+	if info.BatcherHashVersion, info.BatcherAddr, info.CanUseBlobs, err = ReadVersionedBatcherHash(reader); err != nil {
 		return err
 	}
 	if info.L1FeeOverhead, err = solabi.ReadEthBytes32(reader); err != nil {
@@ -144,14 +150,16 @@ func L1InfoDepositTxData(data []byte) (L1BlockInfo, error) {
 // and the L2 block-height difference with the start of the epoch.
 func L1InfoDeposit(seqNumber uint64, block eth.BlockInfo, sysCfg eth.SystemConfig, regolith bool) (*types.DepositTx, error) {
 	infoDat := L1BlockInfo{
-		Number:         block.NumberU64(),
-		Time:           block.Time(),
-		BaseFee:        block.BaseFee(),
-		BlockHash:      block.Hash(),
-		SequenceNumber: seqNumber,
-		BatcherAddr:    sysCfg.BatcherAddr,
-		L1FeeOverhead:  sysCfg.Overhead,
-		L1FeeScalar:    sysCfg.Scalar,
+		Number:             block.NumberU64(),
+		Time:               block.Time(),
+		BaseFee:            block.BaseFee(),
+		BlockHash:          block.Hash(),
+		SequenceNumber:     seqNumber,
+		BatcherAddr:        sysCfg.BatcherAddr,
+		BatcherHashVersion: sysCfg.BatcherHashVersion,
+		CanUseBlobs:        sysCfg.CanUseBlobs,
+		L1FeeOverhead:      sysCfg.Overhead,
+		L1FeeScalar:        sysCfg.Scalar,
 	}
 	data, err := infoDat.MarshalBinary()
 	if err != nil {

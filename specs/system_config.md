@@ -28,6 +28,11 @@ The first byte identifies the version.
 
 Version `0` embeds the current batch submitter ethereum address (`bytes20`) in the last 20 bytes of the versioned hash.
 
+Version `1`, which is allowed only following blob activation time, also embeds the batch submitter
+ethereum address (`bytes20`) in the last 20 bytes of the versioned hash. Additionally, the second
+byte, if equal to 0x1, indicates the batcher is allowed to use blob transactions, and must be 0
+otherwise.
+
 In the future this versioned hash may become a commitment to a more extensive configuration,
 to enable more extensive redundancy and/or rotation configurations.
 

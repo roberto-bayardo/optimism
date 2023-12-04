@@ -316,6 +316,12 @@ type SystemConfig struct {
 	Scalar Bytes32 `json:"scalar"`
 	// GasLimit identifies the L2 block gas limit
 	GasLimit uint64 `json:"gasLimit"`
+	// BatcherHashVersion contains the version byte of the BatcherHash. It is assumed to be 0
+	// if the field is omitted.
+	BatcherHashVersion byte `json:"batcherHashVersion,omitempty"`
+	// CanUseBlobs specifies whether the batcher can post batches using blobs instead of calldata
+	// when BatcherHashVersion is 0x1, and otherwise must be false or omitted.
+	CanUseBlobs bool `json:"useBlobs,omitempty"`
 	// More fields can be added for future SystemConfig versions.
 }
 

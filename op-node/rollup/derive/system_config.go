@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/hashicorp/go-multierror"
 
@@ -21,6 +22,8 @@ var (
 	SystemConfigUpdateGasConfig         = common.Hash{31: 1}
 	SystemConfigUpdateGasLimit          = common.Hash{31: 2}
 	SystemConfigUpdateUnsafeBlockSigner = common.Hash{31: 3}
+
+	addressPadding [12]byte = [12]byte{}
 )
 
 var (
@@ -84,14 +87,15 @@ func ProcessSystemConfigUpdateLogEvent(destSysCfg *eth.SystemConfig, ev *types.L
 		if length, err := solabi.ReadUint64(reader); err != nil || length != 32 {
 			return NewCriticalError(errors.New("invalid length field"))
 		}
-		address, err := solabi.ReadAddress(reader)
+		v, a, b, err := ReadVersionedBatcherHash(reader)
 		if err != nil {
-			return NewCriticalError(errors.New("could not read address"))
+			return NewCriticalError(fmt.Errorf("invalid versioned batcher address: %w", err))
 		}
 		if !solabi.EmptyReader(reader) {
 			return NewCriticalError(errors.New("too many bytes"))
 		}
-		destSysCfg.BatcherAddr = address
+		// TODO: make sure version == 0 if we've yet to pass blob activation time
+		destSysCfg.BatcherHashVersion, destSysCfg.BatcherAddr, destSysCfg.CanUseBlobs = v, a, b
 		return nil
 	case SystemConfigUpdateGasConfig:
 		if pointer, err := solabi.ReadUint64(reader); err != nil || pointer != 32 {
@@ -136,4 +140,47 @@ func ProcessSystemConfigUpdateLogEvent(destSysCfg *eth.SystemConfig, ev *types.L
 	default:
 		return fmt.Errorf("unrecognized L1 sysCfg update type: %s", updateType)
 	}
+}
+
+func ReadVersionedBatcherHash(r io.Reader) (v byte, a common.Address, useBlobs bool, err error) {
+	a, padding, err := solabi.ReadAddressWithPadding(r)
+	if err != nil {
+		return v, a, useBlobs, fmt.Errorf("could not read address with padding: %w", err)
+	}
+	if bytes.Equal(padding[:], addressPadding[:]) {
+		return v, a, false, nil
+	}
+	if padding[0] != 0x1 {
+		return v, a, useBlobs, fmt.Errorf("unknown batcher address version: %b", padding[0])
+	}
+	v = padding[0]
+	// For v1 batcher addresses, bit 0 of padding[0] indicates whether batch transactions can
+	// be blob transactions.
+	switch padding[1] {
+	case 1:
+		useBlobs = true
+	case 0:
+		useBlobs = false
+	default:
+		return v, a, useBlobs, fmt.Errorf("unknown value in byte 1 of v1 address: %b", padding[1])
+	}
+	if !bytes.Equal(padding[2:], addressPadding[2:]) {
+		return v, a, useBlobs, errors.New("v1 address padding not empty")
+	}
+	return v, a, useBlobs, nil
+}
+
+func WriteVersionedBatcherHash(w io.Writer, v byte, a common.Address, useBlobs bool) error {
+	var n [12]byte
+	n[0] = v
+	if useBlobs {
+		n[1] = 0x1
+	}
+	if _, err := w.Write(n[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(a[:]); err != nil {
+		return err
+	}
+	return nil
 }

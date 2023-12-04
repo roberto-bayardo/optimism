@@ -25,12 +25,22 @@ type infoTest struct {
 }
 
 func randomL1Cfg(rng *rand.Rand, l1Info eth.BlockInfo) eth.SystemConfig {
-	return eth.SystemConfig{
+	cfg := eth.SystemConfig{
 		BatcherAddr: testutils.RandomAddress(rng),
 		Overhead:    [32]byte{},
 		Scalar:      [32]byte{},
 		GasLimit:    1234567,
 	}
+	switch rng.Intn(3) {
+	case 0:
+		cfg.BatcherHashVersion = 0
+	case 1:
+		cfg.BatcherHashVersion = 1
+	case 2:
+		cfg.BatcherHashVersion = 1
+		cfg.CanUseBlobs = true
+	}
+	return cfg
 }
 
 var MockDepositContractAddr = common.HexToAddress("0xdeadbeefdeadbeefdeadbeefdeadbeef00000000")
@@ -77,6 +87,8 @@ func TestParseL1InfoDepositTxData(t *testing.T) {
 			assert.Equal(t, res.BlockHash, info.Hash())
 			assert.Equal(t, res.SequenceNumber, seqNr)
 			assert.Equal(t, res.BatcherAddr, l1Cfg.BatcherAddr)
+			assert.Equal(t, res.BatcherHashVersion, l1Cfg.BatcherHashVersion)
+			assert.Equal(t, res.CanUseBlobs, l1Cfg.CanUseBlobs)
 			assert.Equal(t, res.L1FeeOverhead, l1Cfg.Overhead)
 			assert.Equal(t, res.L1FeeScalar, l1Cfg.Scalar)
 		})

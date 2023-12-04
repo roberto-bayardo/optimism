@@ -59,6 +59,16 @@ func ReadAddress(r io.Reader) (common.Address, error) {
 	return a, err
 }
 
+func ReadAddressWithPadding(r io.Reader) (common.Address, [12]byte, error) {
+	var readPadding [12]byte
+	var a common.Address
+	if _, err := io.ReadFull(r, readPadding[:]); err != nil {
+		return a, readPadding, err
+	}
+	_, err := io.ReadFull(r, a[:])
+	return a, readPadding, err
+}
+
 // ReadUint64 reads a big endian uint64 from a 32 byte word
 func ReadUint64(r io.Reader) (uint64, error) {
 	var readPadding [24]byte
