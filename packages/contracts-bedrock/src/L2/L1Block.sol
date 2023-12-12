@@ -33,23 +33,26 @@ contract L1Block is ISemver {
     bytes32 public batcherHash;
 
     /// @notice The overhead value applied to the L1 portion of the transaction fee.
+    /// @custom:legacy
     uint256 public l1FeeOverhead;
 
     /// @notice The scalar value applied to the L1 portion of the transaction fee.
+    /// @custom:legacy
     uint256 public l1FeeScalar;
 
     /// @notice The scalar value applied to the L1 base fee portion of the blob-capable L1 cost func
-	uint256 public basefeeScalar;
+	uint256 public baseFeeScalar;
 
     /// @notice The scalar value applied to the L1 blob base fee portion of the blob-capable L1 cost func
-	uint256 public blobBasefeeScalar;
+	uint256 public blobBaseFeeScalar;
 
     /// @notice The latest L1 blob basefee.
-    uint256 public blobBasefee;
+    uint256 public blobBaseFee;
 
     /// @custom:semver 1.2.0
     string public constant version = "1.2.0";
 
+    /// @custom:legacy
     /// @notice Updates the L1 block values.
     /// @param _number         L1 blocknumber.
     /// @param _timestamp      L1 timestamp.
@@ -87,22 +90,22 @@ contract L1Block is ISemver {
     /// @param _number             L1 blocknumber.
     /// @param _timestamp          L1 timestamp.
     /// @param _basefee            L1 basefee.
-    /// @param _blobBasefee        L1 blobBasefee.
+    /// @param _blobBaseFee        L1 blobBaseFee.
     /// @param _hash               L1 blockhash.
     /// @param _sequenceNumber     Number of L2 blocks since epoch start.
     /// @param _batcherHash        Versioned hash to authenticate batcher by.
-    /// @param _basefeeScalar      L1 base fee scalar
-    /// @param _blobBasefeeScalar  L1 blob base fee scalar
+    /// @param _baseFeeScalar      L1 base fee scalar
+    /// @param _blobBaseFeeScalar  L1 blob base fee scalar
     function setL1BlockValuesV2(
         uint64 _number,
         uint64 _timestamp,
         uint256 _basefee,
-        uint256 _blobBasefee,
+        uint256 _blobBaseFee,
         bytes32 _hash,
         uint64 _sequenceNumber,
         bytes32 _batcherHash,
-        uint256 _basefeeScalar,
-        uint256 _blobBasefeeScalar
+        uint256 _baseFeeScalar,
+        uint256 _blobBaseFeeScalar
     )
         external
     {
@@ -111,11 +114,11 @@ contract L1Block is ISemver {
         number = _number;
         timestamp = _timestamp;
         basefee = _basefee;
-        blobBasefee = _blobBasefee;
+        blobBasefee = _blobBaseFee;
         hash = _hash;
         sequenceNumber = _sequenceNumber;
         batcherHash = _batcherHash;
-        basefeeScalar = _basefeeScalar;
-		blobBasefeeScalar = _blobBasefeeScalar;
+        basefeeScalar = _baseFeeScalar;
+        blobBasefeeScalar = _blobBaseFeeScalar;
     }
 }
