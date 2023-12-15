@@ -41,10 +41,10 @@ contract L1Block is ISemver {
     uint256 public l1FeeScalar;
 
     /// @notice The scalar value applied to the L1 base fee portion of the blob-capable L1 cost func
-	uint256 public baseFeeScalar;
+	uint32 public baseFeeScalar;
 
     /// @notice The scalar value applied to the L1 blob base fee portion of the blob-capable L1 cost func
-	uint256 public blobBaseFeeScalar;
+	uint32 public blobBaseFeeScalar;
 
     /// @notice The latest L1 blob basefee.
     uint256 public blobBaseFee;
@@ -87,38 +87,32 @@ contract L1Block is ISemver {
     }
 
     /// @notice Updates the L1 block values for a post-blob activated chain.
-    /// @param _number             L1 blocknumber.
-    /// @param _timestamp          L1 timestamp.
-    /// @param _basefee            L1 basefee.
-    /// @param _blobBaseFee        L1 blobBaseFee.
-    /// @param _hash               L1 blockhash.
-    /// @param _sequenceNumber     Number of L2 blocks since epoch start.
-    /// @param _batcherHash        Versioned hash to authenticate batcher by.
-    /// @param _baseFeeScalar      L1 base fee scalar
-    /// @param _blobBaseFeeScalar  L1 blob base fee scalar
-    function setL1BlockValuesV2(
-        uint64 _number,
-        uint64 _timestamp,
-        uint256 _basefee,
-        uint256 _blobBaseFee,
-        bytes32 _hash,
-        uint64 _sequenceNumber,
-        bytes32 _batcherHash,
-        uint256 _baseFeeScalar,
-        uint256 _blobBaseFeeScalar
-    )
-        external
-    {
+    /// Params are passed in as part of msg.data in order to compress the calldata.
+    /// Params should be passed in in the following order:
+    ///   1. _number             L1 blocknumber.
+    ///   2. _timestamp          L1 timestamp.
+    ///   3. _basefee            L1 basefee.
+    ///   4. _blobBaseFee        L1 blobBaseFee.
+    ///   5. _hash               L1 blockhash.
+    ///   6. _sequenceNumber     Number of L2 blocks since epoch start.
+    ///   7. _batcherHash        Versioned hash to authenticate batcher by.
+    ///   8. _baseFeeScalar      L1 base fee scalar
+    ///   9. _blobBaseFeeScalar  L1 blob base fee scalar
+    function setL1BlockValuesV2() external {
         require(msg.sender == DEPOSITOR_ACCOUNT, "L1Block: only the depositor account can set L1 block values");
+
+        (uint64 _number, uint64 _timestamp, uint256 _basefee, uint256 _blobBaseFee, bytes32 _hash,
+        uint64 _sequenceNumber, bytes32 _batcherHash, uint32 _baseFeeScalar, uint32 _blobBaseFeeScalar) =
+            abi.decode(msg.data[4:], (uint64, uint64, uint256, uint256, bytes32, uint64, bytes32, uint32, uint32));
 
         number = _number;
         timestamp = _timestamp;
         basefee = _basefee;
-        blobBasefee = _blobBaseFee;
+        blobBaseFee = _blobBaseFee;
         hash = _hash;
         sequenceNumber = _sequenceNumber;
         batcherHash = _batcherHash;
-        basefeeScalar = _baseFeeScalar;
-        blobBasefeeScalar = _blobBaseFeeScalar;
+        baseFeeScalar = _baseFeeScalar;
+        blobBaseFeeScalar = _blobBaseFeeScalar;
     }
 }
