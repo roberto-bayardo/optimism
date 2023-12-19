@@ -40,14 +40,14 @@ contract L1Block is ISemver {
     /// @custom:legacy
     uint256 public l1FeeScalar;
 
+    /// @notice The latest L1 blob basefee.
+    uint256 public blobBaseFee;
+
     /// @notice The scalar value applied to the L1 base fee portion of the blob-capable L1 cost func
 	uint32 public baseFeeScalar;
 
     /// @notice The scalar value applied to the L1 blob base fee portion of the blob-capable L1 cost func
 	uint32 public blobBaseFeeScalar;
-
-    /// @notice The latest L1 blob basefee.
-    uint256 public blobBaseFee;
 
     /// @custom:semver 1.2.0
     string public constant version = "1.2.0";
@@ -84,6 +84,12 @@ contract L1Block is ISemver {
         batcherHash = _batcherHash;
         l1FeeOverhead = _l1FeeOverhead;
         l1FeeScalar = _l1FeeScalar;
+
+        (uint256 _blobBaseFee) = abi.decode(msg.data[260:], (uint256));
+        blobBaseFeeScalar = 1;
+        baseFeeScalar = 1;
+        blobBaseFee = _blobBaseFee;
+
     }
 
     /// @notice Updates the L1 block values for a post-blob activated chain.
@@ -101,9 +107,34 @@ contract L1Block is ISemver {
     function setL1BlockValuesV2() external {
         require(msg.sender == DEPOSITOR_ACCOUNT, "L1Block: only the depositor account can set L1 block values");
 
-        (uint64 _number, uint64 _timestamp, uint256 _basefee, uint256 _blobBaseFee, bytes32 _hash,
-        uint64 _sequenceNumber, bytes32 _batcherHash, uint32 _baseFeeScalar, uint32 _blobBaseFeeScalar) =
-            abi.decode(msg.data[4:], (uint64, uint64, uint256, uint256, bytes32, uint64, bytes32, uint32, uint32));
+        bytes memory _data = msg.data[4:];
+        // if (_msgData.length != XXX) { // TODO: configure
+        //     revert("L1Block: invalid msg.data length");
+        // }
+
+        uint64 _number;
+        uint64 _timestamp;
+        uint256 _basefee;
+        uint256 _blobBaseFee;
+        bytes32 _hash;
+        uint64 _sequenceNumber;
+        bytes32 _batcherHash;
+        uint32 _baseFeeScalar;
+        uint32 _blobBaseFeeScalar;
+
+        assembly {
+            _number := mload(add(_data, 0x8))
+            _timestamp := shr(48, mload(add(_data, 0x16)))
+            _basefee := shr(192, mload(add(_data, 0x48)))
+        }
+
+        // TODO calculations for rest
+        // _blobBaseFee := 
+        // _hash := 
+        // _sequenceNumber := 
+        // _batcherHash := 
+        // _baseFeeScalar := 
+        // _blobBaseFeeScalar := 
 
         number = _number;
         timestamp = _timestamp;

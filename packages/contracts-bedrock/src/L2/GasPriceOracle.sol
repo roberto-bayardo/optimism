@@ -37,7 +37,7 @@ contract GasPriceOracle is ISemver {
     function getL1Fee(bytes memory _data) external view returns (uint256) {
         uint256 unscaled;
         if (isEclipse) {
-            uint256 l1GasUsed = getL1GasUsed(_data);
+            uint256 l1GasUsed = _getL1GasUsed(_data);
             uint256 scaledBaseFee = baseFeeScalar() * l1BaseFee();
             uint256 scaledBlobBaseFee = blobBaseFeeScalar() * blobBaseFee();
             unscaled = l1GasUsed * (scaledBaseFee + scaledBlobBaseFee);
@@ -51,12 +51,12 @@ contract GasPriceOracle is ISemver {
         return scaled;
     }
 
-    function setIsEclipse(bool _isEclipse) external {
+    function setEclipse() external {
         require(
             msg.sender == L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT(),
             "GasPriceOracle: only the depositor account can set isEclipse flag"
         );
-        isEclipse = _isEclipse;
+        isEclipse = true;
     }
 
     /// @notice Retrieves the current gas price (base fee).
@@ -74,15 +74,21 @@ contract GasPriceOracle is ISemver {
     /// @custom:legacy
     /// @notice Retrieves the current fee overhead.
     /// @return Current fee overhead.
-    function overhead() public pure returns (uint256) {
-        revert("GasPriceOracle: overhead() is deprecated");
+    function overhead() public view returns (uint256) {
+        if (isEclipse) {
+            revert("GasPriceOracle: overhead() is deprecated");
+        }
+        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).l1FeeOverhead();
     }
 
     /// @custom:legacy
     /// @notice Retrieves the current fee scalar.
     /// @return Current fee scalar.
-    function scalar() public pure returns (uint256) {
-        revert("GasPriceOracle: scalar() is deprecated");
+    function scalar() public view returns (uint256) {
+        if (isEclipse) {
+            revert("GasPriceOracle: scalar() is deprecated");
+        }
+        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).l1FeeScalar();
     }
 
     /// @notice Retrieves the latest known L1 base fee.
@@ -116,10 +122,18 @@ contract GasPriceOracle is ISemver {
         return DECIMALS;
     }
 
-    /// @notice Computes the amount of L1 gas used for a transaction. Adds the overhead which
-    ///         represents the per-transaction gas overhead of posting the transaction and state
-    ///         roots to L1. Adds 68 bytes of padding to account for the fact that the input does
-    ///         not have a signature.
+    /// @notice Computes the amount of L1 gas used for a transaction. Adds 68 bytes
+    ///         of padding to account for the fact that the input does not have a signature.
+    /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
+    /// @return Amount of L1 gas used to publish the transaction.
+    function getL1GasUsed(bytes memory _data) public view returns (uint256) {
+        if (isEclipse) {
+            return _getL1GasUsed(_data);
+        }
+        return _getL1GasUsedPreEclipse(_data);
+    }
+
+    /// @notice Pre-eclipse L1 gas estimation calculation.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
     /// @return Amount of L1 gas used to publish the transaction.
     function _getL1GasUsedPreEclipse(bytes memory _data) internal view returns (uint256) {
@@ -136,11 +150,10 @@ contract GasPriceOracle is ISemver {
         return unsigned + (68 * 16);
     }
 
-    /// @notice Computes the amount of L1 gas used for a transaction. Adds 68 bytes
-    ///         of padding to account for the fact that the input does not have a signature.
+    /// @notice Post-eclipse L1 gas estimation calculation.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
     /// @return Amount of L1 gas used to publish the transaction.
-    function getL1GasUsed(bytes memory _data) public pure returns (uint256) {
+    function _getL1GasUsed(bytes memory _data) internal pure returns (uint256) {
         uint256 total = 0;
         uint256 length = _data.length;
         for (uint256 i = 0; i < length; i++) {
