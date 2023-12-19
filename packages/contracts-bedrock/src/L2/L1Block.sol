@@ -41,13 +41,13 @@ contract L1Block is ISemver {
     uint256 public l1FeeScalar;
 
     /// @notice The latest L1 blob basefee.
-    uint256 public blobBaseFee;
+    uint256 public blobBasefee;
 
     /// @notice The scalar value applied to the L1 base fee portion of the blob-capable L1 cost func
-	uint32 public baseFeeScalar;
+	uint32 public basefeeScalar;
 
     /// @notice The scalar value applied to the L1 blob base fee portion of the blob-capable L1 cost func
-	uint32 public blobBaseFeeScalar;
+	uint32 public blobBasefeeScalar;
 
     /// @custom:semver 1.2.0
     string public constant version = "1.2.0";
@@ -84,12 +84,6 @@ contract L1Block is ISemver {
         batcherHash = _batcherHash;
         l1FeeOverhead = _l1FeeOverhead;
         l1FeeScalar = _l1FeeScalar;
-
-        (uint256 _blobBaseFee) = abi.decode(msg.data[260:], (uint256));
-        blobBaseFeeScalar = 1;
-        baseFeeScalar = 1;
-        blobBaseFee = _blobBaseFee;
-
     }
 
     /// @notice Updates the L1 block values for a post-blob activated chain.
@@ -98,52 +92,54 @@ contract L1Block is ISemver {
     ///   1. _number             L1 blocknumber.
     ///   2. _timestamp          L1 timestamp.
     ///   3. _basefee            L1 basefee.
-    ///   4. _blobBaseFee        L1 blobBaseFee.
+    ///   4. _blobBasefee        L1 blobBasefee.
     ///   5. _hash               L1 blockhash.
     ///   6. _sequenceNumber     Number of L2 blocks since epoch start.
     ///   7. _batcherHash        Versioned hash to authenticate batcher by.
-    ///   8. _baseFeeScalar      L1 base fee scalar
-    ///   9. _blobBaseFeeScalar  L1 blob base fee scalar
+    ///   8. _basefeeScalar      L1 base fee scalar
+    ///   9. _blobBasefeeScalar  L1 blob base fee scalar
     function setL1BlockValuesV2() external {
         require(msg.sender == DEPOSITOR_ACCOUNT, "L1Block: only the depositor account can set L1 block values");
-
-        bytes memory _data = msg.data[4:];
-        // if (_msgData.length != XXX) { // TODO: configure
-        //     revert("L1Block: invalid msg.data length");
-        // }
 
         uint64 _number;
         uint64 _timestamp;
         uint256 _basefee;
-        uint256 _blobBaseFee;
+        uint256 _blobBasefee;
         bytes32 _hash;
         uint64 _sequenceNumber;
         bytes32 _batcherHash;
-        uint32 _baseFeeScalar;
-        uint32 _blobBaseFeeScalar;
+        uint32 _basefeeScalar;
+        uint32 _blobBasefeeScalar;
 
         assembly {
-            _number := mload(add(_data, 0x8))
-            _timestamp := shr(48, mload(add(_data, 0x16)))
-            _basefee := shr(192, mload(add(_data, 0x48)))
+            let offset := 0x4
+            _number := shr(24, calldataload(offset)) // uint64
+            offset := add(offset, 0x20)
+            _timestamp := shr(24, calldataload(offset)) // uint64
+            offset := add(offset, 0x20)
+            _basefee := calldataload(offset) // uint256
+            offset := add(offset, 0x20)
+            _blobBasefee := calldataload(offset) // uint256
+            offset := add(offset, 0x20)
+            _hash := calldataload(offset) // bytes32
+            offset := add(offset, 0x20)
+            _sequenceNumber := shr(24, calldataload(offset)) // uint64
+            offset := add(offset, 0x20)
+            _batcherHash := calldataload(offset) // bytes32
+            offset := add(offset, 0x20)
+            _basefeeScalar := shr(24, calldataload(offset)) // uint32
+            offset := add(offset, 0x20)
+            _blobBasefeeScalar := shr(24, calldataload(offset)) // uint32
         }
-
-        // TODO calculations for rest
-        // _blobBaseFee := 
-        // _hash := 
-        // _sequenceNumber := 
-        // _batcherHash := 
-        // _baseFeeScalar := 
-        // _blobBaseFeeScalar := 
 
         number = _number;
         timestamp = _timestamp;
         basefee = _basefee;
-        blobBaseFee = _blobBaseFee;
+        blobBasefee = _blobBasefee;
         hash = _hash;
         sequenceNumber = _sequenceNumber;
         batcherHash = _batcherHash;
-        baseFeeScalar = _baseFeeScalar;
-        blobBaseFeeScalar = _blobBaseFeeScalar;
+        basefeeScalar = _basefeeScalar;
+        blobBasefeeScalar = _blobBasefeeScalar;
     }
 }

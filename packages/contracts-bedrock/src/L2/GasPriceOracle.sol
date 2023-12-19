@@ -35,22 +35,13 @@ contract GasPriceOracle is ISemver {
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
-        uint256 unscaled;
         if (isEclipse) {
-            uint256 l1GasUsed = _getL1GasUsed(_data);
-            uint256 scaledBaseFee = baseFeeScalar() * l1BaseFee();
-            uint256 scaledBlobBaseFee = blobBaseFeeScalar() * blobBaseFee();
-            unscaled = l1GasUsed * (scaledBaseFee + scaledBlobBaseFee);
-        } else {
-            uint256 l1GasUsed = _getL1GasUsedPreEclipse(_data);
-            uint256 l1Fee = l1GasUsed * l1BaseFee();
-            unscaled = l1Fee * L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).l1FeeScalar();
+            _getL1FeeEclipse(_data);
         }
-        uint256 divisor = 10 ** DECIMALS;
-        uint256 scaled = unscaled / divisor;
-        return scaled;
+        return _getL1FeeBedrock(_data);
     }
 
+    /// @notice Set chain to be Eclipse chain (callable by depositor account)
     function setEclipse() external {
         require(
             msg.sender == L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).DEPOSITOR_ACCOUNT(),
@@ -99,20 +90,20 @@ contract GasPriceOracle is ISemver {
 
     /// @notice Retrieves the current blob base fee.
     /// @return Current blob base fee.
-    function blobBaseFee() public view returns (uint256) {
-        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).blobBaseFee();
+    function blobBasefee() public view returns (uint256) {
+        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).blobBasefee();
     }
 
     /// @notice Retrieves the current base fee scalar.
     /// @return Current base fee scalar.
-    function baseFeeScalar() public view returns (uint32) {
-        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).baseFeeScalar();
+    function basefeeScalar() public view returns (uint32) {
+        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).basefeeScalar();
     }
 
     /// @notice Retrieves the current blob base fee scalar.
     /// @return Current blob base fee scalar.
-    function blobBaseFeeScalar() public view returns (uint32) {
-        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).blobBaseFeeScalar();
+    function blobBasefeeScalar() public view returns (uint32) {
+        return L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).blobBasefeeScalar();
     }
 
     /// @custom:legacy
@@ -128,15 +119,40 @@ contract GasPriceOracle is ISemver {
     /// @return Amount of L1 gas used to publish the transaction.
     function getL1GasUsed(bytes memory _data) public view returns (uint256) {
         if (isEclipse) {
-            return _getL1GasUsed(_data);
+            return _getL1GasUsedEclipse(_data);
         }
-        return _getL1GasUsedPreEclipse(_data);
+        return _getL1GasUsedBedrock(_data);
+    }
+
+    /// @notice Pre-eclipse computation of the L1 portion of the fee.
+    /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
+    /// @return L1 fee that should be paid for the tx
+    function _getL1FeeBedrock(bytes memory _data) internal view returns (uint256) {
+        uint256 l1GasUsed = _getL1GasUsedBedrock(_data);
+        uint256 l1Fee = l1GasUsed * l1BaseFee();
+        uint256 unscaled = l1Fee * L1Block(Predeploys.L1_BLOCK_ATTRIBUTES).l1FeeScalar();
+        uint256 divisor = 10 ** DECIMALS;
+        uint256 scaled = unscaled / divisor;
+        return scaled;
+    }
+
+    /// @notice Post-eclipse computation of the L1 portion of the fee.
+    /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
+    /// @return L1 fee that should be paid for the tx
+    function _getL1FeeEclipse(bytes memory _data) internal view returns (uint256) {
+        uint256 l1GasUsed = _getL1GasUsedEclipse(_data);
+        uint256 scaledBasefee = basefeeScalar() * l1BaseFee();
+        uint256 scaledBlobBasefee = blobBasefeeScalar() * blobBasefee();
+        uint256 unscaled = l1GasUsed * (scaledBasefee + scaledBlobBasefee);
+        uint256 divisor = 10 ** DECIMALS;
+        uint256 scaled = unscaled / divisor;
+        return scaled;
     }
 
     /// @notice Pre-eclipse L1 gas estimation calculation.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
     /// @return Amount of L1 gas used to publish the transaction.
-    function _getL1GasUsedPreEclipse(bytes memory _data) internal view returns (uint256) {
+    function _getL1GasUsedBedrock(bytes memory _data) internal view returns (uint256) {
         uint256 total = 0;
         uint256 length = _data.length;
         for (uint256 i = 0; i < length; i++) {
@@ -153,7 +169,7 @@ contract GasPriceOracle is ISemver {
     /// @notice Post-eclipse L1 gas estimation calculation.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 gas for.
     /// @return Amount of L1 gas used to publish the transaction.
-    function _getL1GasUsed(bytes memory _data) internal pure returns (uint256) {
+    function _getL1GasUsedEclipse(bytes memory _data) internal pure returns (uint256) {
         uint256 total = 0;
         uint256 length = _data.length;
         for (uint256 i = 0; i < length; i++) {
