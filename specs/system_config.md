@@ -17,9 +17,9 @@
 The `SystemConfig` is a contract on L1 that can emit rollup configuration changes as log events.
 The rollup [block derivation process](./derivation.md) picks up on these log events and applies the changes.
 
-## System config contents (version 0)
+## System config contents (version 1)
 
-Version 0 of the system configuration contract defines the following parameters:
+Version 1 of the system configuration contract defines the following parameters:
 
 ### `batcherHash` (`bytes32`)
 
@@ -31,10 +31,12 @@ Version `0` embeds the current batch submitter ethereum address (`bytes20`) in t
 In the future this versioned hash may become a commitment to a more extensive configuration,
 to enable more extensive redundancy and/or rotation configurations.
 
-### `overhead` and `scalar` (`uint256,uint256`)
+### `overhead`,`scalar` (`uint256,uint256`) and `l1BasefeeScalar`,`l1BlobBasefeeScalar` (`uint32,uint32`)
 
-The L1 fee parameters, also known as Gas Price Oracle (GPO) parameters,
-are updated in conjunction and apply new L1 costs to the L2 transactions.
+These parameters are the L1 fee parameters, also known as Gas Price Oracle (GPO) parameters, used
+to compute the L1 data fee applied to an L2 transaction.  Prior to the Eclipse upgrade, `overhead`
+and `scalar` are consulted and passed to the L2 via L1 block info for this purpose. After the
+upgrade, `l1BasefeeScalar` and `l1BlobBasefeeScalar` are used instead.
 
 ### `gasLimit` (`uint64`)
 
@@ -70,7 +72,9 @@ A rollup node initializes its derivation process by finding a starting point bas
 - When started from L2 genesis, the initial system configuration is retrieved from the rollup chain configuration.
 - When started from an existing L2 chain, a previously included L1 block is determined as derivation starting point,
   and the system config can thus be retrieved from the last L2 block that referenced the L1 block as L1 origin:
-  - `batcherHash`, `overhead` and `scalar` are retrieved from the L1 block info transaction.
+  - If the chain state precedes the Eclipse upgrade, `batcherHash`, `overhead` and `scalar` are
+    retrieved from the L1 block info transaction. Otherwise, `batcherHash`, `l1BasefeeScalar`, and
+    `l1BlobBasefeeScalar` are retrieved instead.
   - `gasLimit` is retrieved from the L2 block header.
   - other future variables may also be retrieved from other contents of the L2 block, such as the header.
 
@@ -86,7 +90,9 @@ The contained log events are filtered and processed as follows:
 - the remaining event data is opaque, encoded as ABI bytes (i.e. includes offset and length data),
   and encodes the configuration update. In version `0` the following types are supported:
   - type `0`: `batcherHash` overwrite, as `bytes32` payload.
-  - type `1`: `overhead` and `scalar` overwrite, as two packed `uint256` entries.
+  - type `1`: When the chain state precedes the Eclipse upgrade, `overhead` and `scalar` overwrite,
+    as two packed `uint256` entries. Otherwise `l1BasefeeScalar` and `l1BlobBasefeeScalar overwrite,
+    as two packed `uint32` entries.
   - type `2`: `gasLimit` overwrite, as `uint64` payload.
   - type `3`: `unsafeBlockSigner` overwrite, as `address` payload.
 
