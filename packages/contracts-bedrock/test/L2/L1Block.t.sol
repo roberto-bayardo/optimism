@@ -6,8 +6,6 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 
 // Target contract
 import { L1Block } from "src/L2/L1Block.sol";
-import "forge-std/console.sol";
-
 
 contract L1BlockTest is CommonTest {
     address depositor;
@@ -22,8 +20,8 @@ contract L1BlockTest is CommonTest {
     bytes32 constant batcherHash = bytes32(uint256(1516));
     uint256 constant l1FeeOverhead = 1718;
     uint256 constant l1FeeScalar = 1920;
-    uint32 constant blobBasefeeScalar = 21;
-    uint32 constant basefeeScalar = 22;
+    uint32 constant basefeeScalar = 21;
+    uint32 constant blobBasefeeScalar = 22;
 
     /// @dev Sets up the test suite.
     function setUp() public virtual override {
@@ -179,5 +177,5 @@ contract L1BlockEclipse_Test is L1BlockTest {
     /// @dev Tests that `sequenceNumber` returns the correct value.
     function test_sequenceNumber_succeeds() external {
         assertEq(l1Block.sequenceNumber(), sequenceNumber);
-    }
+    }åå
 }

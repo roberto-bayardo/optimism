@@ -101,45 +101,45 @@ contract L1Block is ISemver {
     function setL1BlockValuesV2() external {
         require(msg.sender == DEPOSITOR_ACCOUNT, "L1Block: only the depositor account can set L1 block values");
 
-        uint64 _number;
-        uint64 _timestamp;
+        uint256 _number;
+        uint256 _timestamp;
         uint256 _basefee;
         uint256 _blobBasefee;
         bytes32 _hash;
-        uint64 _sequenceNumber;
+        uint256 _sequenceNumber;
         bytes32 _batcherHash;
-        uint32 _basefeeScalar;
-        uint32 _blobBasefeeScalar;
+        uint256 _basefeeScalar;
+        uint256 _blobBasefeeScalar;
 
         assembly {
             let offset := 0x4
-            _number := shr(24, calldataload(offset)) // uint64
+            _number := shr(192, calldataload(offset)) // uint64
+            offset := add(offset, 0x8)
+            _timestamp := shr(192, calldataload(offset)) // uint64
+            offset := add(offset, 0x18)
+            _basefee := shr(128, calldataload(offset))  // uint256
             offset := add(offset, 0x20)
-            _timestamp := shr(24, calldataload(offset)) // uint64
+            _blobBasefee := shr(128, calldataload(offset)) // uint256
             offset := add(offset, 0x20)
-            _basefee := calldataload(offset) // uint256
-            offset := add(offset, 0x20)
-            _blobBasefee := calldataload(offset) // uint256
-            offset := add(offset, 0x20)
-            _hash := calldataload(offset) // bytes32
-            offset := add(offset, 0x20)
-            _sequenceNumber := shr(24, calldataload(offset)) // uint64
-            offset := add(offset, 0x20)
+            _hash := shr(128, calldataload(offset)) // bytes32
+            offset := add(offset, 0x10)
+            _sequenceNumber := shr(192, calldataload(offset)) // uint64
+            offset := add(offset, 0x8)
             _batcherHash := calldataload(offset) // bytes32
             offset := add(offset, 0x20)
-            _basefeeScalar := shr(24, calldataload(offset)) // uint32
-            offset := add(offset, 0x20)
-            _blobBasefeeScalar := shr(24, calldataload(offset)) // uint32
+            _basefeeScalar := shr(224, calldataload(offset)) // uint32
+            offset := add(offset, 0x4)
+            _blobBasefeeScalar := shr(224, calldataload(offset)) // uint32
         }
 
-        number = _number;
-        timestamp = _timestamp;
+        number =  uint64(_number);
+        timestamp = uint64(_timestamp);
         basefee = _basefee;
         blobBasefee = _blobBasefee;
         hash = _hash;
-        sequenceNumber = _sequenceNumber;
+        sequenceNumber =  uint64(_sequenceNumber);
         batcherHash = _batcherHash;
-        basefeeScalar = _basefeeScalar;
-        blobBasefeeScalar = _blobBasefeeScalar;
+        basefeeScalar =  uint32(_basefeeScalar);
+        blobBasefeeScalar = uint32(_blobBasefeeScalar);
     }
 }

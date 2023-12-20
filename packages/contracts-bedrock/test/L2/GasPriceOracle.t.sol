@@ -3,7 +3,6 @@ pragma solidity 0.8.15;
 
 // Testing utilities
 import { CommonTest } from "test/setup/CommonTest.sol";
-import {console} from "forge-std/console.sol";
 
 contract GasPriceOracle_Test is CommonTest {
     event OverheadUpdated(uint256);
@@ -124,7 +123,6 @@ contract GasPriceOracleEclipse_Test is GasPriceOracle_Test {
             basefeeScalar,
             blobBasefeeScalar
         );
-        // console.logBytes(functionCallData); 
         bytes memory functionCallData = abi.encodePacked(functionSignature, callDataPacked);
 
         // Execute the function call
