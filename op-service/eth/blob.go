@@ -2,7 +2,6 @@ package eth
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"reflect"
 
@@ -14,7 +13,10 @@ import (
 
 const (
 	BlobSize        = 4096 * 32
-	MaxBlobDataSize = 4096*31 - 4
+	MaxBlobDataSize = (4*31+3)*1024 - 4
+	EncodingVersion = 0
+	FieldSize       = 4 * 32   // size of a field composed of 4 field elements in bytes
+	FieldCapacity   = 31*4 + 3 // maximum data bytes that can be encoded in a field
 )
 
 type Blob [BlobSize]byte
@@ -69,60 +71,181 @@ func VerifyBlobProof(blob *Blob, commitment kzg4844.Commitment, proof kzg4844.Pr
 }
 
 // FromData encodes the given input data into this blob. The encoding scheme is as follows:
-//
-// First, field elements are encoded as big-endian uint256 in BLS modulus range. To avoid modulus
-// overflow, we can't use the full 32 bytes, so we write data only to the topmost 31 bytes of each.
-// TODO: we can optimize this to get a bit more data from the blobs by using the top byte
-// partially.
-//
-// The first field element encodes the length of input data as a little endian uint32 in its
-// topmost 4 (out of 31) bytes, and the first 27 bytes of the input data in its remaining 27
-// bytes.
-//
-// The remaining field elements each encode 31 bytes of the remaining input data, up until the end
-// of the input.
-//
-// TODO: version the encoding format to allow for future encoding changes
+// First, divide the data into 4-byte chunks. Each chunk is encoded into a field as a big-endian uint256 in BLS modulus range.
+// A field is composed of 4 field elements, each of which will contain 31 bytes of data. And the 4 bytes of remaining storage
+// in each field element will be used to encode the next 3 bytes of data.
+// This process is repeated until all data is encoded.
+// For the first field, [1:5] bytes of the first field element will be used to encode the version and the length of the data.
 func (b *Blob) FromData(data Data) error {
 	if len(data) > MaxBlobDataSize {
 		return fmt.Errorf("data is too large for blob. len=%v", len(data))
 	}
 	b.Clear()
-	// encode 4-byte little-endian length value into topmost 4 bytes (out of 31) of first field
-	// element
-	binary.LittleEndian.PutUint32(b[1:5], uint32(len(data)))
-	// encode first 27 bytes of input data into remaining bytes of first field element
+
+	// first field element encodes the version and the length of the data in [1:5]
+	b[1] = EncodingVersion
+
+	// encode the length as big-endian uint24 into [2:5] bytes of the first field element
+	if len(data) < 1<<24 {
+		// Zero out any trailing data in the buffer if any
+		b[2] = byte((len(data) >> 16) & 0xFF) // Most significant byte
+		b[3] = byte((len(data) >> 8) & 0xFF)
+		b[4] = byte(len(data) & 0xFF) // Least significant byte
+		fmt.Println("FromData:", b[1:5])
+	} else {
+		// Handle the error for length_rollup_data being too large
+		return fmt.Errorf("Error: length_rollup_data is too large")
+	}
+
+	// encode the first 27 + 31*3 bytes of data into remaining bytes of first four field element
+	// encode the first 27 bytes of data into remaining bytes of first field element
 	offset := copy(b[5:32], data)
-	// encode (up to) 31 bytes of remaining input data at a time into the subsequent field element
-	for i := 1; i < 4096; i++ {
+
+	// for loop to encode the next 31 bytes of data into [1:] of the next three field elements
+	for i := 1; i < 4; i++ {
 		offset += copy(b[i*32+1:i*32+32], data[offset:])
+		if offset == len(data) {
+			return nil
+		}
+	}
+
+	// encode the next 3 bytes of data into the four remaining bytes of the first four field elements
+	remainingData := make([]byte, 3)
+	for i := 0; i < 3; i++ {
+		offset += copy(remainingData[i:i+1], data[offset:])
 		if offset == len(data) {
 			break
 		}
 	}
+	// copy the last 6 bits of remainingData[0] into the first byte of the first field element
+	b[0] = remainingData[0] & 0b0011_1111
+	// copy the last 6 bits of remainingData[1] into the first byte of the second field element
+	b[32] = remainingData[1] & 0b0011_1111
+	// copy the last 6 bits of remainingData[2] into the first byte of the third field element
+	b[64] = remainingData[2] & 0b0011_1111
+	// copy the first 2 bits of all remainingData bytes into the first byte of the fourth field element
+	b[96] = ((remainingData[0] & 0b1100_0000) >> 2) | ((remainingData[1] & 0b1100_0000) >> 4) | ((remainingData[2] & 0b1100_0000) >> 6)
+
+	if offset == len(data) {
+		return nil
+	}
+
+	for i := 1; i < 1024; i++ {
+		for j := 0; j < 4; j++ {
+			offset += copy(b[i*FieldSize+j*32+1:i*FieldSize+j*32+32], data[offset:])
+			if offset == len(data) {
+				break
+			}
+		}
+		if offset == len(data) {
+			break
+		}
+
+		// encode the next 3 bytes of data into the four remaining bytes of the first four field elements
+		remainingData := make([]byte, 3)
+		for j := 0; j < 3; j++ {
+			offset += copy(remainingData[j:j+1], data[offset:])
+			if offset == len(data) {
+				break
+			}
+		}
+
+		// copy the last 6 bits of remainingData[0] into the first byte of the first field element
+		b[i*FieldSize] = remainingData[0] & 0b0011_1111
+		// copy the last 6 bits of remainingData[1] into the first byte of the second field element
+		b[i*FieldSize+32] = remainingData[1] & 0b0011_1111
+		// copy the last 6 bits of remainingData[2] into the first byte of the third field element
+		b[i*FieldSize+64] = remainingData[2] & 0b0011_1111
+		// copy the first 2 bits of all remainingData bytes into the first byte of the fourth field element
+		b[i*FieldSize+96] = ((remainingData[0] & 0b1100_0000) >> 2) | ((remainingData[1] & 0b1100_0000) >> 4) | ((remainingData[2] & 0b1100_0000) >> 6)
+
+		if offset == len(data) {
+			break
+		}
+	}
+
 	if offset < len(data) {
 		return fmt.Errorf("failed to fit all data into blob. bytes remaining: %v", len(data)-offset)
 	}
+
 	return nil
 }
 
 // ToData decodes the blob into raw byte data. See FromData above for details on the encoding
 // format.
 func (b *Blob) ToData() (Data, error) {
-	data := make(Data, 4096*32)
-	for i := 0; i < 4096; i++ {
-		if b[i*32] != 0 {
-			return nil, fmt.Errorf("invalid blob, found non-zero high order byte %x of field element %d", b[i*32], i)
-		}
-		copy(data[i*31:i*31+31], b[i*32+1:i*32+32])
+	data := make(Data, BlobSize)
+	firstField := b[:FieldSize]
+
+	// check the version
+	if firstField[1] != EncodingVersion {
+		return nil, fmt.Errorf("invalid blob, expected version %d, got %d", EncodingVersion, firstField[0])
 	}
-	// extract the length prefix & trim the output accordingly
-	dataLen := binary.LittleEndian.Uint32(data[:4])
-	data = data[4:]
-	if dataLen > uint32(len(data)) {
+
+	// decode the 3-byte length prefix into 4-byte integer
+	var dataLen int32
+
+	// Assuming b[2], b[3], and b[4] contain the encoded length in big-endian format
+	dataLen = int32(b[2]) << 16 // Shift the most significant byte 16 bits to the left
+	dataLen |= int32(b[3]) << 8 // Shift the next byte 8 bits to the left and OR it with the current length
+	dataLen |= int32(b[4])      // OR the least significant byte with the current length
+
+	if dataLen > (int32)(len(data)) {
 		return nil, fmt.Errorf("invalid blob, length prefix out of range: %d", dataLen)
 	}
+
+	// copy the first 27 bytes of the first field element into the output
+	copy(data[:27], firstField[5:32])
+
+	// copy the remaining 31*3 bytes of the first field into the output
+	for i := 1; i < 4; i++ {
+		copy(data[27+31*(i-1):], b[i*32+1:i*32+32])
+	}
+
+	// Decode the first byte of each field element in the first field
+	decodedData := make([]byte, 3)
+
+	// Decode the last 6 bits from the first byte of the first, second, and third field elements
+	decodedData[0] = b[0] & 0b0011_1111
+	decodedData[1] = b[32] & 0b0011_1111
+	decodedData[2] = b[64] & 0b0011_1111
+
+	// Extract the first 2 bits of all remainingData bytes from the first byte of the fourth field element
+	decodedData[0] |= (b[96] & 0b0011_0000) << 2
+	decodedData[1] |= (b[96] & 0b0000_1100) << 4
+	decodedData[2] |= (b[96] & 0b0000_0011) << 6
+
+	// copy the decoded data into the output
+	copy(data[27+31*3:], decodedData)
+
+	// for loop to decode 128 bytes of data at a time from the next 4 field elements
+	for i := 1; i < 1024; i++ {
+		for j := 0; j < 4; j++ {
+			copy(data[FieldCapacity*i+j*31:], b[i*FieldSize+j*32+1:i*FieldSize+j*32+32])
+		}
+		// Decode the first byte of each field element in the first field
+		decodedData := make([]byte, 3)
+
+		// Decode the last 6 bits from the first byte of the first, second, and third field elements
+		decodedData[0] = b[FieldSize*i] & 0b0011_1111
+		decodedData[1] = b[FieldSize*i+32] & 0b0011_1111
+		decodedData[2] = b[FieldSize*i+64] & 0b0011_1111
+
+		// Extract the first 2 bits of all remainingData bytes from the first byte of the fourth field element
+		decodedData[0] |= (b[FieldSize*i+96] & 0b0011_0000) << 2
+		decodedData[1] |= (b[FieldSize*i+96] & 0b0000_1100) << 4
+		decodedData[2] |= (b[FieldSize*i+96] & 0b0000_0011) << 6
+
+		if i == 1023 {
+			fmt.Println("decodedData:", decodedData)
+		}
+
+		// copy the decoded data into the output
+		copy(data[120+FieldCapacity*i:], decodedData)
+	}
+
 	data = data[:dataLen]
+
 	return data, nil
 }
 
