@@ -147,10 +147,10 @@ L1 cost is computed as:
 Where:
 
 - `compressedTxSize` is an approximation of how many bytes the transaction occupies in an L1 posted
-  batch. It is determined from the *full* encoded transaction as: `compressedTxSize = (zeroes*4 +
-  ones*16) / 16` (To preserve precision under integer arithmetic, the division by 16 is actually
-  performed at the very end of the fee computation together with the division by 1e6 as a single
-  division by 16e6.)
+  batch. It is determined by compressing the *full* RLP-encoded transaction:
+  `compressedTxSize = fastLZLen(rlpEncodedTransaction)`, where `fastLZLen` is the length of the
+  compressed transaction after applying the fastLZ level 1 compression algorithm at this commit:
+  https://github.com/ariya/FastLZ/tree/344eb4025f9ae866ebf7a2ec48850f7113a97a42.
 
 - `l1Basefee` is the L1 basefee of the latest L1 origin registered in the L2 chain.
 
