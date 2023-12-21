@@ -91,9 +91,7 @@ func (b *Blob) FromData(data Data) error {
 		b[2] = byte((len(data) >> 16) & 0xFF) // Most significant byte
 		b[3] = byte((len(data) >> 8) & 0xFF)
 		b[4] = byte(len(data) & 0xFF) // Least significant byte
-		fmt.Println("FromData:", b[1:5])
 	} else {
-		// Handle the error for length_rollup_data being too large
 		return fmt.Errorf("Error: length_rollup_data is too large")
 	}
 
@@ -117,14 +115,7 @@ func (b *Blob) FromData(data Data) error {
 			break
 		}
 	}
-	// copy the last 6 bits of remainingData[0] into the first byte of the first field element
-	b[0] = remainingData[0] & 0b0011_1111
-	// copy the last 6 bits of remainingData[1] into the first byte of the second field element
-	b[32] = remainingData[1] & 0b0011_1111
-	// copy the last 6 bits of remainingData[2] into the first byte of the third field element
-	b[64] = remainingData[2] & 0b0011_1111
-	// copy the first 2 bits of all remainingData bytes into the first byte of the fourth field element
-	b[96] = ((remainingData[0] & 0b1100_0000) >> 2) | ((remainingData[1] & 0b1100_0000) >> 4) | ((remainingData[2] & 0b1100_0000) >> 6)
+	encodeThreeBytes(0, remainingData, b)
 
 	if offset == len(data) {
 		return nil
@@ -150,14 +141,7 @@ func (b *Blob) FromData(data Data) error {
 			}
 		}
 
-		// copy the last 6 bits of remainingData[0] into the first byte of the first field element
-		b[i*FieldSize] = remainingData[0] & 0b0011_1111
-		// copy the last 6 bits of remainingData[1] into the first byte of the second field element
-		b[i*FieldSize+32] = remainingData[1] & 0b0011_1111
-		// copy the last 6 bits of remainingData[2] into the first byte of the third field element
-		b[i*FieldSize+64] = remainingData[2] & 0b0011_1111
-		// copy the first 2 bits of all remainingData bytes into the first byte of the fourth field element
-		b[i*FieldSize+96] = ((remainingData[0] & 0b1100_0000) >> 2) | ((remainingData[1] & 0b1100_0000) >> 4) | ((remainingData[2] & 0b1100_0000) >> 6)
+		encodeThreeBytes(i, remainingData, b)
 
 		if offset == len(data) {
 			break
@@ -169,6 +153,17 @@ func (b *Blob) FromData(data Data) error {
 	}
 
 	return nil
+}
+
+func encodeThreeBytes(index int, remainingData []byte, b *Blob) {
+	// copy the last 6 bits of remainingData[0] into the first byte of the first field element
+	b[index*FieldSize] = remainingData[0] & 0b0011_1111
+	// copy the last 6 bits of remainingData[1] into the first byte of the second field element
+	b[index*FieldSize+32] = remainingData[1] & 0b0011_1111
+	// copy the last 6 bits of remainingData[2] into the first byte of the third field element
+	b[index*FieldSize+64] = remainingData[2] & 0b0011_1111
+	// copy the first 2 bits of all remainingData bytes into the first byte of the fourth field element
+	b[index*FieldSize+96] = ((remainingData[0] & 0b1100_0000) >> 2) | ((remainingData[1] & 0b1100_0000) >> 4) | ((remainingData[2] & 0b1100_0000) >> 6)
 }
 
 // ToData decodes the blob into raw byte data. See FromData above for details on the encoding
@@ -199,6 +194,10 @@ func (b *Blob) ToData() (Data, error) {
 
 	// copy the remaining 31*3 bytes of the first field into the output
 	for i := 1; i < 4; i++ {
+		// check that the highest order bit of the first byte of each field element is not set
+		if firstField[i*32]&(1<<7) != 0 {
+			return nil, fmt.Errorf("invalid blob, field element %d has highest order bit set", i)
+		}
 		copy(data[27+31*(i-1):], b[i*32+1:i*32+32])
 	}
 
@@ -221,7 +220,12 @@ func (b *Blob) ToData() (Data, error) {
 	// for loop to decode 128 bytes of data at a time from the next 4 field elements
 	for i := 1; i < 1024; i++ {
 		for j := 0; j < 4; j++ {
-			copy(data[FieldCapacity*i+j*31:], b[i*FieldSize+j*32+1:i*FieldSize+j*32+32])
+			// check that the highest order bit of the first byte of each field element is not set
+			if b[i*FieldSize+j*32]&(1<<7) != 0 {
+				return nil, fmt.Errorf("invalid blob, field element %d has highest order bit set", i)
+			}
+			// -4 because of 1 byte of version and 3 bytes of length prefix
+			copy(data[FieldCapacity*i+j*31-4:FieldCapacity*i+(j+1)*31-4], b[i*FieldSize+j*32+1:])
 		}
 		// Decode the first byte of each field element in the first field
 		decodedData := make([]byte, 3)
@@ -236,14 +240,9 @@ func (b *Blob) ToData() (Data, error) {
 		decodedData[1] |= (b[FieldSize*i+96] & 0b0000_1100) << 4
 		decodedData[2] |= (b[FieldSize*i+96] & 0b0000_0011) << 6
 
-		if i == 1023 {
-			fmt.Println("decodedData:", decodedData)
-		}
-
 		// copy the decoded data into the output
 		copy(data[120+FieldCapacity*i:], decodedData)
 	}
-
 	data = data[:dataLen]
 
 	return data, nil
