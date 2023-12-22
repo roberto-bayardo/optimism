@@ -16,7 +16,7 @@ const (
 	MaxBlobDataSize = (4*31+3)*1024 - 4
 	EncodingVersion = 0
 	FieldSize       = 4 * 32   // size of a field composed of 4 field elements in bytes
-	FieldCapacity   = 31*4 + 3 // maximum data bytes that can be encoded in a field
+	FieldCapacity   = 31*4 + 3 // # of bytes that can be encoded in 4 field elements
 )
 
 type Blob [BlobSize]byte

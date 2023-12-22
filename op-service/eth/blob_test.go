@@ -78,8 +78,8 @@ func TestSmallBlobEncoding(t *testing.T) {
 }
 
 func TestBigBlobEncoding(t *testing.T) {
-	bigData := Data(make([]byte, MaxBlobDataSize-3))
-	bigData[MaxBlobDataSize-4] = 0xFF
+	bigData := Data(make([]byte, MaxBlobDataSize))
+	bigData[MaxBlobDataSize-1] = 0xFF
 	var b Blob
 	// test the maximum size of data that can be encoded
 	if err := b.FromData(bigData); err != nil {
