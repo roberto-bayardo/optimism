@@ -51,6 +51,7 @@ func (cl *L1BeaconClient) apiReq(ctx context.Context, dest any, method string) e
 	return nil
 }
 
+// GetTimeToSlotFn returns a function that converts a timestamp to a slot number.
 func (cl *L1BeaconClient) GetTimeToSlotFn(ctx context.Context) (TimeToSlotFn, error) {
 	cl.initLock.Lock()
 	defer cl.initLock.Unlock()
@@ -74,7 +75,9 @@ func (cl *L1BeaconClient) GetTimeToSlotFn(ctx context.Context) (TimeToSlotFn, er
 	return cl.timeToSlotFn, nil
 }
 
-function (cl *L1BeaconClient) GetBlobSidecarsByRefAndIndexedDataHashes(ctx context.Context, ref eth.L1BlockRef, dataHashes []eth.IndexedDataHash) ([]*eth.BlobSidecar, error) {
+// GetBlobSidecarsByRefAndIndexedDataHashes fetches blob sidecars that were confirmed in the given L1 block with the
+// given indexed hashes.
+func (cl *L1BeaconClient) GetBlobSidecarsByRefAndIndexedDataHashes(ctx context.Context, ref eth.L1BlockRef, dataHashes []eth.IndexedDataHash) ([]*eth.BlobSidecar, error) {
 	slotFn, err := cl.GetTimeToSlotFn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get time to slot function: %w", err)
