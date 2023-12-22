@@ -100,8 +100,9 @@ func (b *Blob) FromData(data Data) error {
 	offset := copy(b[5:32], data)
 
 	// for loop to encode the next 31 bytes of data into [1:] of the next three field elements
-	for i := 1; i < 4; i++ {
-		offset += copy(b[i*32+1:i*32+32], data[offset:])
+	for fieldNumber := 1; fieldNumber < 4; fieldNumber++ {
+		fieldStartIndex := fieldNumber * 32
+		offset += copy(b[fieldStartIndex+1:fieldStartIndex+32], data[offset:])
 		if offset == len(data) {
 			return nil
 		}
@@ -121,9 +122,10 @@ func (b *Blob) FromData(data Data) error {
 		return nil
 	}
 
-	for i := 1; i < 1024; i++ {
-		for j := 0; j < 4; j++ {
-			offset += copy(b[i*FieldSize+j*32+1:i*FieldSize+j*32+32], data[offset:])
+	for fieldNumber := 1; fieldNumber < 1024; fieldNumber++ {
+		for fieldElementNumber := 0; fieldElementNumber < 4; fieldElementNumber++ {
+			elementStartIndex := fieldNumber*FieldSize + fieldElementNumber*32
+			offset += copy(b[elementStartIndex+1:elementStartIndex+32], data[offset:])
 			if offset == len(data) {
 				break
 			}
@@ -141,7 +143,7 @@ func (b *Blob) FromData(data Data) error {
 			}
 		}
 
-		encodeThreeBytes(i, remainingData, b)
+		encodeThreeBytes(fieldNumber, remainingData, b)
 
 		if offset == len(data) {
 			break
