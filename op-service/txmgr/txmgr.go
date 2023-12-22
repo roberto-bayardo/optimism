@@ -37,6 +37,7 @@ var (
 	blobPriceBumpPercent = big.NewInt(100 + blobPriceBump)
 
 	oneHundred = big.NewInt(100)
+	ninetyNine = big.NewInt(99)
 	two        = big.NewInt(2)
 )
 
@@ -706,7 +707,7 @@ func (m *SimpleTxManager) checkLimits(tip, basefee, bumpedTip, bumpedFee *big.In
 
 // calcThresholdValue returns ceil(x * priceBumpPercent / 100)
 // It guarantees that x is increased by at least 1
-func calcThresholdValue(x *big.Int) *big.Int {
+func calcThresholdValue(x *big.Int, isBlobTx bool) *big.Int {
 	var percent *big.Int
 	if isBlobTx {
 		percent = blobPriceBumpPercent
