@@ -71,9 +71,10 @@ func VerifyBlobProof(blob *Blob, commitment kzg4844.Commitment, proof kzg4844.Pr
 }
 
 // FromData encodes the given input data into this blob. The encoding scheme is as follows:
-// First, divide the data into 4-byte chunks. Each chunk is encoded into a field as a big-endian uint256 in BLS modulus range.
-// A field is composed of 4 field elements, each of which will contain 31 bytes of data. And the 4 bytes of remaining storage
-// in each field element will be used to encode the next 3 bytes of data.
+// It reads 31 bytes and then 1 byte for three times and then 31 bytes of data from the input.
+// For all the 31 bytes of data, they are encoded into [1:32] bytes of each field element.
+// For the extra 3 bytes read from the input, they are encoded into the 1 bytes of data on the top of each field element.
+// So for each field (4 field elements), 3 bytes are encoded into 4 bytes where the highest order bit is set to 0
 // This process is repeated until all data is encoded.
 // For the first field, [1:5] bytes of the first field element will be used to encode the version and the length of the data.
 func (b *Blob) FromData(data Data) error {
@@ -95,58 +96,72 @@ func (b *Blob) FromData(data Data) error {
 		return fmt.Errorf("Error: length_rollup_data is too large")
 	}
 
-	// encode the first 27 + 31*3 bytes of data into remaining bytes of first four field element
-	// encode the first 27 bytes of data into remaining bytes of first field element
-	offset := copy(b[5:32], data)
+	offset := 0
+	var buffer []byte
 
-	// for loop to encode the next 31 bytes of data into [1:] of the next three field elements
-	for fieldNumber := 1; fieldNumber < 4; fieldNumber++ {
-		fieldStartIndex := fieldNumber * 32
-		offset += copy(b[fieldStartIndex+1:fieldStartIndex+32], data[offset:])
-		if offset == len(data) {
-			return nil
-		}
-	}
+	// encode the first 27 + 1 bytes of data into remaining bytes of first field element
+	buffer, offset = read(0, 27, data)
+	x, offset := read(offset, 1, data)
+	encodedByte := x[0] & 0b0011_1111
+	b.write([]byte{encodedByte}, 0)
+	b.write(buffer, 5)
+	pointer := 32 // manually set the pointer to the next field element
 
-	// encode the next 3 bytes of data into the four remaining bytes of the first four field elements
-	remainingData := make([]byte, 3)
-	for i := 0; i < 3; i++ {
-		offset += copy(remainingData[i:i+1], data[offset:])
-		if offset == len(data) {
-			break
-		}
-	}
-	encodeThreeBytes(0, remainingData, b)
+	clearBuffer(buffer)
+	buffer, offset = read(offset, 31, data)
+	y, offset := read(offset, 1, data)
+
+	encodedByte = (y[0] & 0b0000_1111) | ((x[0] & 0b1100_0000) >> 2)
+	pointer = b.write([]byte{encodedByte}, pointer)
+	pointer = b.write(buffer, pointer)
+
+	clearBuffer(buffer)
+	buffer, offset = read(offset, 31, data)
+	z, offset := read(offset, 1, data)
+	encodedByte = z[0] & 0b0011_1111
+	pointer = b.write([]byte{encodedByte}, pointer)
+	pointer = b.write(buffer, pointer)
+
+	clearBuffer(buffer)
+	buffer, offset = read(offset, 31, data)
+	encodedByte = ((z[0] & 0b1100_0000) >> 2) | ((y[0] & 0b1111_0000) >> 4)
+	pointer = b.write([]byte{encodedByte}, pointer)
+	pointer = b.write(buffer, pointer)
 
 	if offset == len(data) {
 		return nil
 	}
 
 	for fieldNumber := 1; fieldNumber < 1024; fieldNumber++ {
-		for fieldElementNumber := 0; fieldElementNumber < 4; fieldElementNumber++ {
-			elementStartIndex := fieldNumber*FieldSize + fieldElementNumber*32
-			offset += copy(b[elementStartIndex+1:elementStartIndex+32], data[offset:])
-			if offset == len(data) {
-				break
-			}
-		}
-		if offset == len(data) {
-			break
-		}
+		clearBuffer(buffer)
+		buffer, offset = read(offset, 31, data)
+		x, offset = read(offset, 1, data)
+		encodedByte = x[0] & 0b0011_1111
+		pointer = b.write([]byte{encodedByte}, pointer)
+		pointer = b.write(buffer, pointer)
 
-		// encode the next 3 bytes of data into the four remaining bytes of the first four field elements
-		remainingData := make([]byte, 3)
-		for j := 0; j < 3; j++ {
-			offset += copy(remainingData[j:j+1], data[offset:])
-			if offset == len(data) {
-				break
-			}
-		}
+		clearBuffer(buffer)
+		buffer, offset = read(offset, 31, data)
+		y, offset = read(offset, 1, data)
+		encodedByte = (y[0] & 0b0000_1111) | ((x[0] & 0b1100_0000) >> 2)
+		pointer = b.write([]byte{encodedByte}, pointer)
+		pointer = b.write(buffer, pointer)
 
-		encodeThreeBytes(fieldNumber, remainingData, b)
+		clearBuffer(buffer)
+		buffer, offset = read(offset, 31, data)
+		z, offset = read(offset, 1, data)
+		encodedByte = z[0] & 0b0011_1111
+		pointer = b.write([]byte{encodedByte}, pointer)
+		pointer = b.write(buffer, pointer)
 
-		if offset == len(data) {
-			break
+		clearBuffer(buffer)
+		buffer, offset = read(offset, 31, data)
+		encodedByte = ((z[0] & 0b1100_0000) >> 2) | ((y[0] & 0b1111_0000) >> 4)
+		pointer = b.write([]byte{encodedByte}, pointer)
+		pointer = b.write(buffer, pointer)
+
+		if offset >= len(data) {
+			return nil
 		}
 	}
 
@@ -157,15 +172,29 @@ func (b *Blob) FromData(data Data) error {
 	return nil
 }
 
-func encodeThreeBytes(index int, remainingData []byte, b *Blob) {
-	// copy the last 6 bits of remainingData[0] into the first byte of the first field element
-	b[index*FieldSize] = remainingData[0] & 0b0011_1111
-	// copy the last 6 bits of remainingData[1] into the first byte of the second field element
-	b[index*FieldSize+32] = remainingData[1] & 0b0011_1111
-	// copy the last 6 bits of remainingData[2] into the first byte of the third field element
-	b[index*FieldSize+64] = remainingData[2] & 0b0011_1111
-	// copy the first 2 bits of all remainingData bytes into the first byte of the fourth field element
-	b[index*FieldSize+96] = ((remainingData[0] & 0b1100_0000) >> 2) | ((remainingData[1] & 0b1100_0000) >> 4) | ((remainingData[2] & 0b1100_0000) >> 6)
+func read(offset int, numBytes int, data []byte) ([]byte, int) {
+	if offset >= len(data) {
+		// If the offset is at or beyond the end of data, return a new byte array of numBytes length
+		return make([]byte, numBytes), len(data)
+	}
+
+	// Calculate the actual number of bytes to read, which may be less than numBytes
+	// if the offset is near the end of data
+	actualNumBytes := numBytes
+	if offset+numBytes > len(data) {
+		actualNumBytes = len(data) - offset
+	}
+
+	// Create a new byte array and copy the data from the original slice
+	byteArray := make([]byte, actualNumBytes)
+	copy(byteArray, data[offset:offset+actualNumBytes])
+
+	return byteArray, offset + actualNumBytes
+}
+
+func (b *Blob) write(buffer []byte, pointer int) int {
+	copy(b[pointer:], buffer)
+	return pointer + len(buffer)
 }
 
 // ToData decodes the blob into raw byte data. See FromData above for details on the encoding
@@ -192,66 +221,60 @@ func (b *Blob) ToData() (Data, error) {
 	}
 
 	// copy the first 27 bytes of the first field element into the output
-	copy(data[:27], firstField[5:32])
+	copy(data[0:27], firstField[5:])
 
+	encodedByte := make([]byte, 4)
+	encodedByte[0] = firstField[0]
 	// copy the remaining 31*3 bytes of the first field into the output
 	for i := 1; i < 4; i++ {
 		// check that the highest order bit of the first byte of each field element is not set
 		if firstField[i*32]&(1<<7) != 0 {
 			return nil, fmt.Errorf("invalid blob, field element %d has highest order bit set", i)
 		}
-		copy(data[27+31*(i-1):], b[i*32+1:i*32+32])
+		encodedByte[i] = firstField[i*32]
+		copy(data[27+31*(i-1)+i:], b[i*32+1:i*32+32])
 	}
 
-	// Decode the first byte of each field element in the first field
-	decodedData := make([]byte, 3)
-
-	// Decode the last 6 bits from the first byte of the first, second, and third field elements
-	decodedData[0] = b[0] & 0b0011_1111
-	decodedData[1] = b[32] & 0b0011_1111
-	decodedData[2] = b[64] & 0b0011_1111
-
-	// Extract the first 2 bits of all remainingData bytes from the first byte of the fourth field element
-	decodedData[0] |= (b[96] & 0b0011_0000) << 2
-	decodedData[1] |= (b[96] & 0b0000_1100) << 4
-	decodedData[2] |= (b[96] & 0b0000_0011) << 6
-
-	// copy the decoded data into the output
-	copy(data[27+31*3:], decodedData)
+	x := (encodedByte[0] & 0b0011_1111) | ((encodedByte[1] & 0b0011_0000) << 2)
+	y := (encodedByte[1] & 0b0000_1111) | ((encodedByte[3] & 0b0000_1111) << 4)
+	z := (encodedByte[2] & 0b0011_1111) | ((encodedByte[3] & 0b0011_0000) << 2)
+	data[27] = x
+	data[27+31+1] = y
+	data[27+31*2+2] = z
 
 	// for loop to decode 128 bytes of data at a time from the next 4 field elements
 	for i := 1; i < 1024; i++ {
+		encodedByte := make([]byte, 4)
 		for j := 0; j < 4; j++ {
 			// check that the highest order bit of the first byte of each field element is not set
 			if b[i*FieldSize+j*32]&(1<<7) != 0 {
 				return nil, fmt.Errorf("invalid blob, field element %d has highest order bit set", i)
 			}
+			// record the first byte of each field element
+			encodedByte[j] = b[i*FieldSize+j*32]
 			// -4 because of 1 byte of version and 3 bytes of length prefix
-			copy(data[FieldCapacity*i+j*31-4:FieldCapacity*i+(j+1)*31-4], b[i*FieldSize+j*32+1:])
+			copy(data[FieldCapacity*i+j*31-4+j:FieldCapacity*i+(j+1)*31-4+j], b[i*FieldSize+j*32+1:])
 		}
-		// Decode the first byte of each field element in the first field
-		decodedData := make([]byte, 3)
-
-		// Decode the last 6 bits from the first byte of the first, second, and third field elements
-		decodedData[0] = b[FieldSize*i] & 0b0011_1111
-		decodedData[1] = b[FieldSize*i+32] & 0b0011_1111
-		decodedData[2] = b[FieldSize*i+64] & 0b0011_1111
-
-		// Extract the first 2 bits of all remainingData bytes from the first byte of the fourth field element
-		decodedData[0] |= (b[FieldSize*i+96] & 0b0011_0000) << 2
-		decodedData[1] |= (b[FieldSize*i+96] & 0b0000_1100) << 4
-		decodedData[2] |= (b[FieldSize*i+96] & 0b0000_0011) << 6
-
+		x := (encodedByte[0] & 0b0011_1111) | ((encodedByte[1] & 0b0011_0000) << 2)
+		y := (encodedByte[1] & 0b0000_1111) | ((encodedByte[3] & 0b0000_1111) << 4)
+		z := (encodedByte[2] & 0b0011_1111) | ((encodedByte[3] & 0b0011_0000) << 2)
 		// copy the decoded data into the output
-		copy(data[120+FieldCapacity*i:], decodedData)
+		data[FieldCapacity*i+27] = x
+		data[FieldCapacity*i+27+31*1+1] = y
+		data[FieldCapacity*i+27+31*2+2] = z
 	}
 	data = data[:dataLen]
-
 	return data, nil
 }
 
 func (b *Blob) Clear() {
 	for i := 0; i < BlobSize; i++ {
 		b[i] = 0
+	}
+}
+
+func clearBuffer(buffer []byte) {
+	for i := 0; i < len(buffer); i++ {
+		buffer[i] = 0
 	}
 }

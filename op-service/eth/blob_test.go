@@ -1,6 +1,7 @@
 package eth
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -33,23 +34,26 @@ func TestBlobEncodeDecode(t *testing.T) {
 }
 
 func TestSmallBlobEncoding(t *testing.T) {
-	// less than 4 field elements of data
-	data := Data(make([]byte, 27+31*3-6))
-	data[27+31*3-7] = 0xFF
+	// the first field element is filled and no data remains
+	data := Data(make([]byte, 128))
+	data[127] = 0xFF
+
 	var b Blob
 	if err := b.FromData(data); err != nil {
 		t.Fatalf("failed to encode bytes: %v", err)
 	}
+
 	decoded, err := b.ToData()
 	if err != nil {
 		t.Fatalf("failed to decode blob: %v", err)
 	}
+	fmt.Println("original data: ", data)
+	fmt.Println("decoded data: ", decoded)
 	if string(decoded) != string(data) {
 		t.Errorf("decoded blob != small blob input")
 	}
 
 	// only 10 bytes of data
-	data = Data(make([]byte, 10))
 	data[9] = 0xFF
 	if err := b.FromData(data); err != nil {
 		t.Fatalf("failed to encode bytes: %v", err)
@@ -58,6 +62,8 @@ func TestSmallBlobEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to decode blob: %v", err)
 	}
+	fmt.Println("original data: ", data)
+	fmt.Println("decoded data: ", decoded)
 	if string(decoded) != string(data) {
 		t.Errorf("decoded blob != small blob input")
 	}
@@ -72,6 +78,8 @@ func TestSmallBlobEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to decode blob: %v", err)
 	}
+	fmt.Println("original data: ", data)
+	fmt.Println("decoded data: ", decoded)
 	if string(decoded) != string(data) {
 		t.Errorf("decoded blob != small blob input")
 	}
