@@ -664,7 +664,7 @@ func TestTxMgr_SigningFails(t *testing.T) {
 
 // TestTxMgrOnlyOnePublicationSucceeds asserts that the tx manager will return a
 // receipt so long as at least one of the publications is able to succeed with a
-// simulated rpc failure.
+// simulated failure.
 func TestTxMgrOnlyOnePublicationSucceeds(t *testing.T) {
 	t.Parallel()
 
@@ -679,7 +679,7 @@ func TestTxMgrOnlyOnePublicationSucceeds(t *testing.T) {
 	sendTx := func(ctx context.Context, tx *types.Transaction) error {
 		// Fail all but the final attempt.
 		if !h.gasPricer.shouldMine(tx.GasFeeCap()) {
-			return errRpcFailure
+			return txpool.ErrUnderpriced
 		}
 
 		txHash := tx.Hash()
@@ -1360,7 +1360,6 @@ func TestMinFees(t *testing.T) {
 // TestClose ensures that the tx manager will refuse new work and cancel any in progress
 func TestClose(t *testing.T) {
 	conf := configWithNumConfs(1)
-	conf.SafeAbortNonceTooLowCount = 100
 	h := newTestHarnessWithConfig(t, conf)
 
 	sendingSignal := make(chan struct{})
@@ -1382,7 +1381,7 @@ func TestClose(t *testing.T) {
 			h.backend.mine(&txHash, tx.GasFeeCap(), big.NewInt(1))
 		} else {
 			time.Sleep(10 * time.Millisecond)
-			err = core.ErrNonceTooLow
+			err = errRpcFailure
 		}
 		return
 	}
