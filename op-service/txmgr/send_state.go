@@ -1,6 +1,7 @@
 package txmgr
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -36,6 +37,9 @@ type SendState struct {
 
 	// Whether any attempt to send the tx resulted in ErrAlreadyReserved
 	alreadyReserved bool
+
+	// Whether the context for this send was cancelled
+	cancelled bool
 
 	// Whether we should bump fees before trying to publish the tx again
 	bumpFees bool
@@ -77,6 +81,8 @@ func (s *SendState) ProcessSendError(err error) {
 		s.nonceTooLowCount++
 	case errStringMatch(err, txpool.ErrAlreadyReserved):
 		s.alreadyReserved = true
+	case errStringMatch(err, context.Canceled):
+		s.cancelled = true
 	}
 }
 
@@ -133,6 +139,8 @@ func (s *SendState) CriticalError() error {
 	case s.alreadyReserved:
 		// incompatible tx type in mempool
 		return txpool.ErrAlreadyReserved
+	case s.cancelled:
+		return context.Canceled
 	}
 	return nil
 }
