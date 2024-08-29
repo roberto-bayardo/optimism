@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"time"
+	"math/rand"
 
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum/log"
@@ -55,6 +56,12 @@ func (dec *DynamicEthChannelConfig) ChannelConfig() ChannelConfig {
 	if err != nil {
 		dec.log.Warn("Error querying gas prices, returning last config", "err", err)
 		return *dec.lastConfig
+	}
+
+	if rand.Intn(2) == 0 {
+		dec.log.Info("Using blob channel config because of random choice")
+		dec.lastConfig = &dec.blobConfig
+		return dec.blobConfig
 	}
 
 	// We estimate the gas costs of a calldata and blob tx under the assumption that we'd fill
